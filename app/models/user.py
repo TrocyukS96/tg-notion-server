@@ -11,6 +11,7 @@ class User(Base):
 
     telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     notion_access_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    notion_refresh_token: Mapped[str | None] = mapped_column(String, nullable=True)
     notion_workspace_id: Mapped[str | None] = mapped_column(String, nullable=True)
     selected_database_id: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(
