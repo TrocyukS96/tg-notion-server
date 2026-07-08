@@ -5,6 +5,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import router as auth_router
+from app.api.webhook import router as webhook_router
+from app.bot.dispatcher import bot
 from app.core.database import check_db_connection, close_db, get_db, init_db
 
 
@@ -13,12 +15,15 @@ async def lifespan(app: FastAPI):
     await check_db_connection()
     await init_db()
     yield
+    if bot is not None:
+        await bot.session.close()
     await close_db()
 
 
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
+app.include_router(webhook_router)
 
 
 

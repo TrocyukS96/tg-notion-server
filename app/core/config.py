@@ -16,6 +16,8 @@ class Settings:
         self.database_url = os.getenv("DATABASE_URL", "")
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.telegram_webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL", "")
+        self.telegram_webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
 
 @lru_cache

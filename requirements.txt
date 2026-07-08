@@ -5,3 +5,4 @@ httpx
 sqlalchemy
 notion-client
 asyncpg
+aiogram
