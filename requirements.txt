@@ -3,4 +3,5 @@ uvicorn
 python-dotenv
 httpx
 sqlalchemy
+notion-client
 asyncpg
