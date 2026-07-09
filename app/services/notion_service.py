@@ -96,9 +96,60 @@ async def create_database(title: str, columns: list[str], access_token: str) -> 
 
 
 STATUS_PROPERTY = "Status"
+STATUS_PROPERTY_NAMES = ("Status", "Статус")
 TITLE_PROPERTY = "Name"
 DESCRIPTION_PROPERTY = "Description"
 DUE_DATE_PROPERTIES = ("Due date", "Due Date")
+
+
+def _find_title_property_name(properties: dict) -> str:
+    title_property = properties.get(TITLE_PROPERTY)
+    if title_property and title_property.get("type") == "title":
+        return TITLE_PROPERTY
+
+    for name, property_value in properties.items():
+        if property_value.get("type") == "title":
+            return name
+
+    return TITLE_PROPERTY
+
+
+def _find_status_property(properties: dict) -> tuple[str, dict] | None:
+    for name in STATUS_PROPERTY_NAMES:
+        property_value = properties.get(name)
+        if property_value and property_value.get("type") in ("select", "status"):
+            return name, property_value
+
+    for name, property_value in properties.items():
+        if property_value.get("type") in ("select", "status"):
+            return name, property_value
+
+    return None
+
+
+def _extract_status_options(property_schema: dict) -> list[str]:
+    property_type = property_schema.get("type")
+    if property_type == "select":
+        options = property_schema.get("select", {}).get("options", [])
+    elif property_type == "status":
+        options = property_schema.get("status", {}).get("options", [])
+    else:
+        return []
+
+    return [option["name"] for option in options if option.get("name")]
+
+
+def _parse_status_value(property_value: dict) -> str | None:
+    property_type = property_value.get("type")
+    if property_type == "select":
+        select_value = property_value.get("select")
+        return select_value.get("name") if select_value else None
+
+    if property_type == "status":
+        status_value = property_value.get("status")
+        return status_value.get("name") if status_value else None
+
+    return None
 
 
 def _parse_title(properties: dict) -> str:
@@ -116,15 +167,20 @@ def _parse_title(properties: dict) -> str:
 
 
 def _parse_status(properties: dict) -> str | None:
-    status_property = properties.get(STATUS_PROPERTY)
-    if not status_property or status_property.get("type") != "select":
-        return None
+    for name in STATUS_PROPERTY_NAMES:
+        status_property = properties.get(name)
+        if status_property:
+            status = _parse_status_value(status_property)
+            if status:
+                return status
 
-    select_value = status_property.get("select")
-    if not select_value:
-        return None
+    for status_property in properties.values():
+        if status_property.get("type") in ("select", "status"):
+            status = _parse_status_value(status_property)
+            if status:
+                return status
 
-    return select_value.get("name")
+    return None
 
 
 def _parse_rich_text(property_value: dict) -> str:
@@ -174,22 +230,35 @@ def _build_task_properties(
     title: str,
     column: str,
     due_date: str | None,
+    schema_properties: dict,
 ) -> dict:
+    title_property_name = _find_title_property_name(schema_properties)
     properties: dict = {
-        TITLE_PROPERTY: {
+        title_property_name: {
             "title": [{"type": "text", "text": {"content": title}}],
         },
     }
 
     if column:
-        properties[STATUS_PROPERTY] = {
-            "select": {"name": column},
-        }
+        status_info = _find_status_property(schema_properties)
+        if status_info:
+            status_name, status_schema = status_info
+            if status_schema.get("type") == "status":
+                properties[status_name] = {"status": {"name": column}}
+            else:
+                properties[status_name] = {"select": {"name": column}}
 
     if due_date:
-        properties[DUE_DATE_PROPERTIES[0]] = {
-            "date": {"start": due_date},
-        }
+        for date_name in DUE_DATE_PROPERTIES:
+            date_property = schema_properties.get(date_name)
+            if date_property and date_property.get("type") == "date":
+                properties[date_name] = {"date": {"start": due_date}}
+                break
+        else:
+            for name, property_value in schema_properties.items():
+                if property_value.get("type") == "date":
+                    properties[name] = {"date": {"start": due_date}}
+                    break
 
     return properties
 
@@ -285,12 +354,12 @@ async def get_database_columns(data_source_id: str, access_token: str) -> list[s
     client = AsyncClient(auth=access_token)
     try:
         data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
-        status_property = data_source.get("properties", {}).get(STATUS_PROPERTY)
-        if not status_property or status_property.get("type") != "select":
+        status_info = _find_status_property(data_source.get("properties", {}))
+        if not status_info:
             return []
 
-        options = status_property.get("select", {}).get("options", [])
-        return [option["name"] for option in options]
+        _, status_property = status_info
+        return _extract_status_options(status_property)
     except Exception as e:
         raise Exception(f"Notion API error: {e}") from e
     finally:
@@ -307,12 +376,20 @@ async def create_task(
 ) -> str:
     client = AsyncClient(auth=access_token)
     try:
+        data_source = await client.data_sources.retrieve(data_source_id=database_id)
+        schema_properties = data_source.get("properties", {})
+
         payload: dict = {
             "parent": {
                 "type": "data_source_id",
                 "data_source_id": database_id,
             },
-            "properties": _build_task_properties(title, status, due_date),
+            "properties": _build_task_properties(
+                title,
+                status,
+                due_date,
+                schema_properties,
+            ),
         }
 
         if description:
