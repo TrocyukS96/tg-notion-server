@@ -9,9 +9,10 @@ if settings.telegram_bot_token:
 
 dp = Dispatcher(storage=MemoryStorage())
 
-from app.bot.handlers import auth, databases, start, tasks
+from app.bot.handlers import add, auth, databases, start, tasks
 
 dp.include_router(start.router)
 dp.include_router(auth.router)
 dp.include_router(databases.router)
 dp.include_router(tasks.router)
+dp.include_router(add.router)

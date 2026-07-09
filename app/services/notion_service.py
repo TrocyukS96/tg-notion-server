@@ -280,27 +280,50 @@ async def get_tasks(database_id: str, access_token: str) -> list[dict]:
         await client.aclose()
 
 
+async def get_database_columns(data_source_id: str, access_token: str) -> list[str]:
+    """Получает список колонок (статусов) из data source Notion"""
+    client = AsyncClient(auth=access_token)
+    try:
+        data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
+        status_property = data_source.get("properties", {}).get(STATUS_PROPERTY)
+        if not status_property or status_property.get("type") != "select":
+            return []
+
+        options = status_property.get("select", {}).get("options", [])
+        return [option["name"] for option in options]
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
 async def create_task(
     database_id: str,
     title: str,
     description: str,
-    column: str,
+    status: str,
     due_date: str | None,
     access_token: str,
-) -> dict:
-    payload: dict = {
-        "parent": {"database_id": database_id},
-        "properties": _build_task_properties(title, column, due_date),
-    }
+) -> str:
+    client = AsyncClient(auth=access_token)
+    try:
+        payload: dict = {
+            "parent": {
+                "type": "data_source_id",
+                "data_source_id": database_id,
+            },
+            "properties": _build_task_properties(title, status, due_date),
+        }
 
-    if description:
-        payload["children"] = _build_description_blocks(description)
+        if description:
+            payload["children"] = _build_description_blocks(description)
 
-    async with get_notion_client(access_token) as client:
-        response = await client.http.post("/pages", json=payload)
-
-    response.raise_for_status()
-    return response.json()
+        page = await client.pages.create(**payload)
+        return page.get("id", "")
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
 
 
 async def update_task_status(
