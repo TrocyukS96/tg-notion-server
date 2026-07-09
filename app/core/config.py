@@ -18,6 +18,7 @@ class Settings:
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.telegram_webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL", "")
         self.telegram_webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+        self.BASE_URL = os.getenv("BASE_URL", "")
 
 
 @lru_cache

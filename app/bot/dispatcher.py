@@ -8,6 +8,7 @@ if settings.telegram_bot_token:
 
 dp = Dispatcher()
 
-from app.bot.handlers import start
+from app.bot.handlers import auth, start
 
 dp.include_router(start.router)
+dp.include_router(auth.router)
