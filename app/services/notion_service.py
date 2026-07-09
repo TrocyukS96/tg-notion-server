@@ -1,3 +1,5 @@
+from notion_client import AsyncClient
+
 from app.services.notion_client import NotionClient, create_notion_client
 
 STATUS_COLORS = (
@@ -32,19 +34,36 @@ async def _get_personal_page_id(client: NotionClient) -> str | None:
     return data.get("personal_page_id")
 
 
-async def search_databases(query: str, access_token: str) -> dict:
-    async with get_notion_client(access_token) as client:
-        response = await client.http.post(
-            "/search",
-            json={
-                "query": query,
-                "filter": {"property": "object", "value": "database"},
-                "page_size": 100,
-            },
+async def search_databases(query: str, access_token: str) -> list[dict]:
+    """Ищет базы данных в Notion по названию"""
+    client = AsyncClient(auth=access_token)
+    try:
+        response = await client.search(
+            query=query,
+            filter={"property": "object", "value": "database"},
         )
+        results = response.get("results", [])
 
-    response.raise_for_status()
-    return response.json()
+        formatted = []
+        for db in results:
+            title = db.get("title", [])
+            title_text = (
+                "".join(t.get("plain_text", "") for t in title)
+                if title
+                else "Без названия"
+            )
+            formatted.append(
+                {
+                    "id": db.get("id"),
+                    "title": title_text,
+                    "url": db.get("url"),
+                }
+            )
+        return formatted
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
 
 
 async def create_database(title: str, columns: list[str], access_token: str) -> dict:
