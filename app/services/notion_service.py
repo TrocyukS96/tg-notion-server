@@ -97,7 +97,8 @@ async def create_database(title: str, columns: list[str], access_token: str) -> 
 
 STATUS_PROPERTY = "Status"
 TITLE_PROPERTY = "Name"
-DUE_DATE_PROPERTY = "Due date"
+DESCRIPTION_PROPERTY = "Description"
+DUE_DATE_PROPERTIES = ("Due date", "Due Date")
 
 
 def _parse_title(properties: dict) -> str:
@@ -126,11 +127,24 @@ def _parse_status(properties: dict) -> str | None:
     return select_value.get("name")
 
 
+def _parse_rich_text(property_value: dict) -> str:
+    rich_text = property_value.get("rich_text", [])
+    return "".join(item.get("plain_text", "") for item in rich_text)
+
+
+def _parse_description(properties: dict) -> str:
+    description_property = properties.get(DESCRIPTION_PROPERTY)
+    if description_property and description_property.get("type") == "rich_text":
+        return _parse_rich_text(description_property)
+    return ""
+
+
 def _parse_due_date(properties: dict) -> str | None:
-    due_date_property = properties.get(DUE_DATE_PROPERTY)
-    if due_date_property and due_date_property.get("type") == "date":
-        date_value = due_date_property.get("date")
-        return date_value.get("start") if date_value else None
+    for property_name in DUE_DATE_PROPERTIES:
+        due_date_property = properties.get(property_name)
+        if due_date_property and due_date_property.get("type") == "date":
+            date_value = due_date_property.get("date")
+            return date_value.get("start") if date_value else None
 
     for property_value in properties.values():
         if property_value.get("type") == "date":
@@ -143,10 +157,12 @@ def _parse_due_date(properties: dict) -> str | None:
 def _parse_task(page: dict) -> dict[str, str | None]:
     properties = page.get("properties", {})
     return {
-        "id": page["id"],
-        "title": _parse_title(properties),
-        "status": _parse_status(properties),
+        "id": page.get("id"),
+        "title": _parse_title(properties) or "Без названия",
+        "description": _parse_description(properties),
+        "status": _parse_status(properties) or "Без статуса",
         "due_date": _parse_due_date(properties),
+        "url": page.get("url"),
     }
 
 
@@ -171,7 +187,7 @@ def _build_task_properties(
         }
 
     if due_date:
-        properties[DUE_DATE_PROPERTY] = {
+        properties[DUE_DATE_PROPERTIES[0]] = {
             "date": {"start": due_date},
         }
 
@@ -233,31 +249,35 @@ async def add_column_to_database(
     return patch_response.json()
 
 
-async def get_tasks(database_id: str, access_token: str) -> list[dict[str, str | None]]:
-    tasks: list[dict[str, str | None]] = []
+async def get_tasks(database_id: str, access_token: str) -> list[dict]:
+    """Получает все задачи из базы данных Notion"""
+    tasks: list[dict] = []
     start_cursor: str | None = None
-
-    async with get_notion_client(access_token) as client:
+    client = AsyncClient(auth=access_token)
+    try:
         while True:
-            payload: dict[str, object] = {"page_size": 100}
+            params: dict[str, object] = {
+                "data_source_id": database_id,
+                "page_size": 100,
+            }
             if start_cursor:
-                payload["start_cursor"] = start_cursor
+                params["start_cursor"] = start_cursor
 
-            response = await client.http.post(
-                f"/databases/{database_id}/query",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+            response = await client.data_sources.query(**params)
 
-            tasks.extend(_parse_task(page) for page in data.get("results", []))
+            for page in response.get("results", []):
+                tasks.append(_parse_task(page))
 
-            if not data.get("has_more"):
+            if not response.get("has_more"):
                 break
 
-            start_cursor = data.get("next_cursor")
+            start_cursor = response.get("next_cursor")
 
-    return tasks
+        return tasks
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
 
 
 async def create_task(
