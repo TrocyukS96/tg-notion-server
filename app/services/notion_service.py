@@ -40,7 +40,7 @@ async def search_databases(query: str, access_token: str) -> list[dict]:
     try:
         response = await client.search(
             query=query,
-            filter={"property": "object", "value": "database"},
+            filter={"property": "object", "value": "data_source"},
         )
         results = response.get("results", [])
 
