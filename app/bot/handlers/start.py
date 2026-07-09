@@ -32,7 +32,7 @@ async def cmd_start(message: types.Message):
 
     await message.answer(
         "👋 Привет! Я бот для работы с Notion.\n\n"
-        "📌 **Команды:**\n"
+        "📌 <b>Команды:</b>\n"
         "/connect - Подключить Notion\n"
         "/select_db - Выбрать базу данных\n"
         "/tasks - Показать задачи\n"
@@ -40,7 +40,7 @@ async def cmd_start(message: types.Message):
         "/board - Открыть доску\n"
         "/help - Помощь",
         reply_markup=keyboard,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -69,16 +69,16 @@ async def cmd_board(message: types.Message):
 async def cmd_help(message: types.Message):
     """Обработчик команды /help"""
     await message.answer(
-        "🤖 **Что я умею:**\n\n"
-        "1️⃣ **Подключаться к Notion** — /connect\n"
-        "2️⃣ **Выбирать базу данных** — /select_db\n"
-        "3️⃣ **Просматривать задачи** — /tasks\n"
-        "4️⃣ **Добавлять задачи** — /add\n"
-        "5️⃣ **Открывать доску** — /board (или кнопка ниже)\n\n"
-        "📊 **Канбан-доска** позволяет:\n"
+        "🤖 <b>Что я умею:</b>\n\n"
+        "1️⃣ <b>Подключаться к Notion</b> — /connect\n"
+        "2️⃣ <b>Выбирать базу данных</b> — /select_db\n"
+        "3️⃣ <b>Просматривать задачи</b> — /tasks\n"
+        "4️⃣ <b>Добавлять задачи</b> — /add\n"
+        "5️⃣ <b>Открывать доску</b> — /board (или кнопка ниже)\n\n"
+        "📊 <b>Канбан-доска</b> позволяет:\n"
         "• Перетаскивать задачи между колонками\n"
         "• Добавлять новые задачи\n"
         "• Добавлять новые колонки\n\n"
-        "🔐 **Важно:** Сначала авторизуйтесь через /connect!",
-        parse_mode="Markdown",
+        "🔐 <b>Важно:</b> Сначала авторизуйтесь через /connect!",
+        parse_mode="HTML",
     )

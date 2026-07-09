@@ -1,4 +1,5 @@
 import re
+from html import escape
 
 from aiogram import Router, types
 from aiogram.filters import Command
@@ -49,10 +50,7 @@ async def cmd_add_task(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Ошибка при получении колонок: {e}")
         return
 
-    await message.answer(
-        "📝 Введите **название** задачи:",
-        parse_mode="Markdown",
-    )
+    await message.answer("📝 Введите <b>название</b> задачи:", parse_mode="HTML")
     await state.set_state(AddTaskStates.waiting_for_title)
 
 
@@ -68,8 +66,8 @@ async def process_task_title(message: types.Message, state: FSMContext):
     await state.update_data(title=title)
 
     await message.answer(
-        "📝 Введите **описание** задачи (или отправьте 'пропустить'):",
-        parse_mode="Markdown",
+        "📝 Введите <b>описание</b> задачи (или отправьте 'пропустить'):",
+        parse_mode="HTML",
     )
     await state.set_state(AddTaskStates.waiting_for_description)
 
@@ -108,9 +106,9 @@ async def process_task_description(message: types.Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
     await message.answer(
-        "📂 Выберите **колонку** (статус) для задачи:",
+        "📂 Выберите <b>колонку</b> (статус) для задачи:",
         reply_markup=keyboard,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
     await state.set_state(AddTaskStates.waiting_for_status)
 
@@ -127,9 +125,9 @@ async def process_task_status(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.delete()
     await callback.message.answer(
-        f"✅ Выбрана колонка: {status}\n\n"
-        "📅 Введите **дату дедлайна** в формате ГГГГ-ММ-ДД (или отправьте 'пропустить'):",
-        parse_mode="Markdown",
+        f"✅ Выбрана колонка: {escape(status)}\n\n"
+        "📅 Введите <b>дату дедлайна</b> в формате ГГГГ-ММ-ДД (или отправьте 'пропустить'):",
+        parse_mode="HTML",
     )
     await state.set_state(AddTaskStates.waiting_for_due_date)
     await callback.answer()
@@ -165,14 +163,14 @@ async def process_task_due_date(message: types.Message, state: FSMContext):
     )
 
     await message.answer(
-        f"📋 **Проверьте задачу:**\n\n"
-        f"📌 **Название:** {title}\n"
-        f"📝 **Описание:** {description}\n"
-        f"📂 **Колонка:** {status}\n"
-        f"📅 **Дедлайн:** {due}\n\n"
-        f"Все верно?",
+        "📋 <b>Проверьте задачу:</b>\n\n"
+        f"📌 <b>Название:</b> {escape(title or '')}\n"
+        f"📝 <b>Описание:</b> {escape(description)}\n"
+        f"📂 <b>Колонка:</b> {escape(status or '')}\n"
+        f"📅 <b>Дедлайн:</b> {escape(str(due))}\n\n"
+        "Все верно?",
         reply_markup=keyboard,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
     await state.set_state(AddTaskStates.waiting_for_confirmation)
 
@@ -216,11 +214,11 @@ async def process_task_confirmation(callback: CallbackQuery, state: FSMContext):
         )
 
         await callback.message.edit_text(
-            f"✅ **Задача создана!**\n\n"
-            f"📌 **Название:** {data.get('title')}\n"
-            f"📂 **Колонка:** {data.get('status')}\n\n"
-            f"Используйте /tasks для просмотра всех задач.",
-            parse_mode="Markdown",
+            "✅ <b>Задача создана!</b>\n\n"
+            f"📌 <b>Название:</b> {escape(data.get('title', ''))}\n"
+            f"📂 <b>Колонка:</b> {escape(data.get('status', ''))}\n\n"
+            "Используйте /tasks для просмотра всех задач.",
+            parse_mode="HTML",
         )
         await state.clear()
     except Exception as e:
