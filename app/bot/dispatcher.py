@@ -16,3 +16,5 @@ dp.include_router(auth.router)
 dp.include_router(databases.router)
 dp.include_router(tasks.router)
 dp.include_router(add.router)
+
+print("✅ Все хендлеры зарегистрированы")
