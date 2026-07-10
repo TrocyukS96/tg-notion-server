@@ -7,10 +7,6 @@ async def set_main_menu(bot: Bot) -> None:
     commands = [
         BotCommand(command="start", description="🏠 Главное меню"),
         BotCommand(command="board", description="📊 Открыть доску"),
-        BotCommand(command="connect", description="🔑 Подключить Notion"),
-        BotCommand(command="select_db", description="📂 Выбрать базу данных"),
-        BotCommand(command="tasks", description="📋 Мои задачи"),
-        BotCommand(command="add", description="➕ Добавить задачу"),
         BotCommand(command="help", description="ℹ️ Помощь"),
     ]
 
