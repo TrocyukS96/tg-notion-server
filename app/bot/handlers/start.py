@@ -1,6 +1,7 @@
 from aiogram import F, Router, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.utils.markdown import hbold, hitalic
 
 from app.core.config import settings
 
@@ -11,14 +12,12 @@ START_TEXT = (
     "Это приложение связывает Telegram с вашими задачами в Notion. "
     "Все управление задачами — в удобной канбан-доске прямо в Telegram.\n\n"
     "🚀 <b>С чего начать:</b>\n"
-    "1. Нажмите «📊 Открыть доску» или отправьте /board\n"
+    "1. Нажмите «📊 Открыть доску»\n"
     "2. Подключите аккаунт Notion\n"
     "3. Выберите базу данных с задачами\n\n"
     "📌 <b>Команды:</b>\n"
     "/board — открыть канбан-доску\n"
-    "/help — подробная инструкция\n\n"
-    "🔜 <b>Скоро:</b> голосовой ввод задач с помощью ИИ — просто надиктуйте задачу, "
-    "а бот сам создаст её в Notion."
+    "/help — подробная инструкция"
 )
 
 HELP_TEXT = (
@@ -27,7 +26,7 @@ HELP_TEXT = (
     "TG Notion — Telegram-бот с канбан-доской для работы с задачами из Notion. "
     "Все изменения синхронизируются с выбранной базой данных в вашем workspace.\n\n"
     "🔹 <b>Первый запуск</b>\n"
-    "1. Откройте web app — /board или кнопка «📊 Открыть доску»\n"
+    "1. Откройте web app — кнопка «📊 Открыть доску»\n"
     "2. Авторизуйтесь в Notion и разрешите доступ к workspace\n"
     "3. Выберите базу данных — оттуда будут подгружаться задачи\n\n"
     "🔹 <b>Что можно делать в web app</b>\n"
@@ -46,43 +45,49 @@ HELP_TEXT = (
 )
 
 
-def _main_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
+def _main_keyboard(webapp_url: str) -> InlineKeyboardMarkup:
+    """Главная клавиатура с Inline-кнопками (передаёт initData!)"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [
-                KeyboardButton(
+                InlineKeyboardButton(
                     text="📊 Открыть доску",
-                    web_app=WebAppInfo(url=settings.WEBAPP_URL),
+                    web_app=WebAppInfo(url=webapp_url)
                 )
             ],
             [
-                KeyboardButton(text="ℹ️ Помощь"),
-            ],
-        ],
-        resize_keyboard=True,
+                InlineKeyboardButton(
+                    text="❓ Помощь",
+                    callback_data="help"
+                )
+            ]
+        ]
     )
 
 
-def _board_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
+def _board_keyboard(webapp_url: str) -> InlineKeyboardMarkup:
+    """Клавиатура для /board с Inline-кнопкой"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [
-                KeyboardButton(
+                InlineKeyboardButton(
                     text="📊 Открыть доску",
-                    web_app=WebAppInfo(url=settings.WEBAPP_URL),
+                    web_app=WebAppInfo(url=webapp_url)
                 )
             ]
-        ],
-        resize_keyboard=True,
+        ]
     )
 
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    """Обработчик команды /start с кнопкой WebApp"""
+    """Обработчик команды /start с Inline-кнопкой WebApp"""
+    # Добавляем telegram_id в URL для надёжности
+    webapp_url = f"{settings.WEBAPP_URL}?telegram_id={message.from_user.id}"
+    
     await message.answer(
         START_TEXT,
-        reply_markup=_main_keyboard(),
+        reply_markup=_main_keyboard(webapp_url),
         parse_mode="HTML",
     )
 
@@ -90,11 +95,13 @@ async def cmd_start(message: types.Message):
 @router.message(Command("board"))
 async def cmd_board(message: types.Message):
     """Команда для открытия доски"""
+    webapp_url = f"{settings.WEBAPP_URL}?telegram_id={message.from_user.id}"
+    
     await message.answer(
         "📊 <b>Канбан-доска</b>\n\n"
         "Нажмите кнопку ниже, чтобы открыть web app. "
         "Там вы подключите Notion, выберете базу и сможете управлять задачами.",
-        reply_markup=_board_keyboard(),
+        reply_markup=_board_keyboard(webapp_url),
         parse_mode="HTML",
     )
 
@@ -105,6 +112,34 @@ async def cmd_help(message: types.Message):
     await message.answer(HELP_TEXT, parse_mode="HTML")
 
 
-@router.message(F.text == "ℹ️ Помощь")
-async def btn_help(message: types.Message):
-    await cmd_help(message)
+@router.callback_query(F.data == "help")
+async def callback_help(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Помощь'"""
+    await callback.message.edit_text(
+        HELP_TEXT,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔙 Назад",
+                        callback_data="back_to_start"
+                    )
+                ]
+            ]
+        )
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_start")
+async def callback_back_to_start(callback: types.CallbackQuery):
+    """Возврат на главный экран"""
+    webapp_url = f"{settings.WEBAPP_URL}?telegram_id={callback.from_user.id}"
+    
+    await callback.message.edit_text(
+        START_TEXT,
+        parse_mode="HTML",
+        reply_markup=_main_keyboard(webapp_url)
+    )
+    await callback.answer()
