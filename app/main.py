@@ -30,14 +30,14 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",          # Локальная разработка
-        "http://localhost:5173",          # Vite локально
-        "https://notion-webapp-six.vercel.app",  # Ваш продакшен на Vercel
-        "https://*.vercel.app",           # Все Vercel приложения (опционально)
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://notion-webapp-six.vercel.app",
+        "https://*.vercel.app",          
     ],
     allow_credentials=True,
-    allow_methods=["*"],                  # Разрешаем все HTTP методы
-    allow_headers=["*"],                  # Разрешаем все заголовки
+    allow_methods=["*"],               
+    allow_headers=["*"],            
 )
 
 app.include_router(auth_router)

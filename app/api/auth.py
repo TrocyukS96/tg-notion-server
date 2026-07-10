@@ -47,6 +47,27 @@ def build_notion_oauth_url(telegram_id: int) -> str:
     return f"{NOTION_AUTHORIZE_URL}?{urlencode(params)}"
 
 
+def build_oauth_return_url(
+    *,
+    success: bool,
+    telegram_id: int,
+    error: str | None = None,
+) -> str:
+    if success and settings.telegram_mini_app_link:
+        return f"{settings.telegram_mini_app_link.rstrip('/')}?startapp=notion_auth_ok"
+
+    base = settings.WEBAPP_URL.rstrip("/")
+    params: dict[str, str] = {
+        "notion_auth": "success" if success else "error",
+        "telegram_id": str(telegram_id),
+    }
+
+    if error:
+        params["error"] = error[:200]
+
+    return f"{base}?{urlencode(params)}"
+
+
 @router.get("/login")
 async def notion_login(telegram_id: int = Query(...)) -> RedirectResponse:
     if not settings.notion_client_id or not settings.notion_redirect_uri:
@@ -111,7 +132,7 @@ async def notion_callback(
     error: str | None = Query(None),
     error_description: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
+) -> RedirectResponse:
     if (
         not settings.notion_client_id
         or not settings.notion_client_secret
@@ -126,13 +147,38 @@ async def notion_callback(
             error,
             error_description or "OAuth authorization failed",
         )
-        status_code = 403 if error == "access_denied" else 400
-        raise HTTPException(status_code=status_code, detail=detail)
+        return RedirectResponse(
+            url=build_oauth_return_url(
+                success=False,
+                telegram_id=telegram_id,
+                error=detail,
+            ),
+            status_code=302,
+        )
 
     if not code:
-        raise HTTPException(status_code=400, detail="Authorization code is missing")
+        return RedirectResponse(
+            url=build_oauth_return_url(
+                success=False,
+                telegram_id=telegram_id,
+                error="Authorization code is missing",
+            ),
+            status_code=302,
+        )
 
-    token_data = await exchange_notion_code(code)
+    try:
+        token_data = await exchange_notion_code(code)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "OAuth authorization failed"
+        return RedirectResponse(
+            url=build_oauth_return_url(
+                success=False,
+                telegram_id=telegram_id,
+                error=detail,
+            ),
+            status_code=302,
+        )
+
     access_token = token_data["access_token"]
     refresh_token = token_data.get("refresh_token") or ""
 
@@ -141,9 +187,19 @@ async def notion_callback(
 
     user = await update_notion_tokens(db, telegram_id, access_token, refresh_token)
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        return RedirectResponse(
+            url=build_oauth_return_url(
+                success=False,
+                telegram_id=telegram_id,
+                error="User not found",
+            ),
+            status_code=302,
+        )
 
-    return {"status": "ok"}
+    return RedirectResponse(
+        url=build_oauth_return_url(success=True, telegram_id=telegram_id),
+        status_code=302,
+    )
 
 
 @router.get("/status")

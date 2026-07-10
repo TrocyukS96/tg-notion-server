@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str = ""
     BASE_URL: str = ""
     WEBAPP_URL: str = "https://ваш-проект.vercel.app"
+    telegram_mini_app_link: str = ""
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
