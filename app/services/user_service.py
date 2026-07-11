@@ -52,3 +52,20 @@ async def get_selected_database(db: AsyncSession, telegram_id: int) -> str | Non
     if user is None:
         return None
     return user.selected_database_id
+
+
+async def clear_notion_session(
+    db: AsyncSession,
+    telegram_id: int,
+) -> User | None:
+    user = await get_user(db, telegram_id)
+    if user is None:
+        return None
+
+    user.notion_access_token = None
+    user.notion_refresh_token = None
+    user.notion_workspace_id = None
+    user.selected_database_id = None
+    await db.commit()
+    await db.refresh(user)
+    return user

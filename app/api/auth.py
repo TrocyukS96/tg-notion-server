@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.services.user_service import create_user, get_user, update_notion_tokens
+from app.services.user_service import (
+    clear_notion_session,
+    create_user,
+    get_user,
+    update_notion_tokens,
+)
 
 NOTION_AUTHORIZE_URL = "https://api.notion.com/v1/oauth/authorize"
 NOTION_TOKEN_URL = "https://api.notion.com/v1/oauth/token"
@@ -221,3 +226,20 @@ async def notion_status(
         }
 
     return {"authorized": False, "message": "Notion не подключён"}
+
+
+@router.delete("/session")
+async def notion_logout(
+    telegram_id: int = Query(..., description="Telegram ID пользователя"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Удаляет сохранённую Notion-сессию пользователя"""
+    user = await get_user(db, telegram_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    if not user.notion_access_token:
+        return {"status": "ok", "authorized": False, "message": "Notion уже отключён"}
+
+    await clear_notion_session(db, telegram_id)
+    return {"status": "ok", "authorized": False}
