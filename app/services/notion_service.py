@@ -66,6 +66,35 @@ async def search_databases(query: str, access_token: str) -> list[dict]:
         await client.aclose()
 
 
+def _parse_data_source_title(data_source: dict) -> str:
+    title = data_source.get("title", [])
+    if isinstance(title, list):
+        title_text = "".join(
+            t.get("plain_text", "") for t in title if isinstance(t, dict)
+        )
+        return title_text or "Без названия"
+
+    if isinstance(title, str) and title:
+        return title
+
+    return "Без названия"
+
+
+async def get_data_source_info(data_source_id: str, access_token: str) -> dict:
+    client = AsyncClient(auth=access_token)
+    try:
+        data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
+        return {
+            "id": data_source.get("id", data_source_id),
+            "title": _parse_data_source_title(data_source),
+            "url": data_source.get("url"),
+        }
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
 async def create_database(title: str, columns: list[str], access_token: str) -> dict:
     async with get_notion_client(access_token) as client:
         personal_page_id = await _get_personal_page_id(client)
