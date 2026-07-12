@@ -408,17 +408,23 @@ async def update_task_status(
     new_status: str,
     access_token: str,
 ) -> dict:
-    async with get_notion_client(access_token) as client:
-        response = await client.http.patch(
-            f"/pages/{task_id}",
-            json={
-                "properties": {
-                    STATUS_PROPERTY: {
-                        "select": {"name": new_status},
-                    }
-                }
-            },
-        )
+    client = AsyncClient(auth=access_token)
+    try:
+        page = await client.pages.retrieve(page_id=task_id)
+        status_info = _find_status_property(page.get("properties", {}))
+        if not status_info:
+            raise ValueError("Status property not found")
 
-    response.raise_for_status()
-    return response.json()
+        status_name, status_schema = status_info
+        if status_schema.get("type") == "status":
+            properties = {status_name: {"status": {"name": new_status}}}
+        else:
+            properties = {status_name: {"select": {"name": new_status}}}
+
+        return await client.pages.update(page_id=task_id, properties=properties)
+    except ValueError:
+        raise
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()

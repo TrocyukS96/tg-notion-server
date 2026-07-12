@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import router as auth_router
 from app.api.databases import router as databases_router
+from app.api.tasks import columns_router, router as tasks_router
 from app.api.webhook import router as webhook_router
 from app.bot.commands import set_main_menu
 from app.bot.dispatcher import bot
@@ -42,6 +43,8 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(databases_router)
+app.include_router(tasks_router)
+app.include_router(columns_router)
 app.include_router(webhook_router)
 
 

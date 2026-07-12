@@ -8,7 +8,7 @@ from app.core.config import settings
 router = Router()
 
 START_TEXT = (
-    "👋 <b>Добро пожаловать в TG Notion!</b>\n\n"
+    "👋 <b>Добро пожаловать в TG Notion Board!</b>\n\n"
     "Это приложение связывает Telegram с вашими задачами в Notion. "
     "Все управление задачами — в удобной канбан-доске прямо в Telegram.\n\n"
     "🚀 <b>С чего начать:</b>\n"
@@ -21,7 +21,7 @@ START_TEXT = (
 )
 
 HELP_TEXT = (
-    "📖 <b>Как пользоваться TG Notion</b>\n\n"
+    "📖 <b>Как пользоваться TG Notion Board</b>\n\n"
     "🔹 <b>Что это?</b>\n"
     "TG Notion — Telegram-бот с канбан-доской для работы с задачами из Notion. "
     "Все изменения синхронизируются с выбранной базой данных в вашем workspace.\n\n"

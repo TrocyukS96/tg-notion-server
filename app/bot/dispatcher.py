@@ -12,5 +12,3 @@ dp = Dispatcher(storage=MemoryStorage())
 from app.bot.handlers import start
 
 dp.include_router(start.router)
-
-print("✅ Все хендлеры зарегистрированы")
