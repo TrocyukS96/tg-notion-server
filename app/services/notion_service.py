@@ -158,6 +158,7 @@ def _find_status_property(properties: dict) -> tuple[str, dict] | None:
 
 def _extract_status_options(property_schema: dict) -> list[str]:
     property_type = property_schema.get("type")
+    print(property_type, "property_type")
     if property_type == "select":
         options = property_schema.get("select", {}).get("options", [])
     elif property_type == "status":
@@ -251,8 +252,37 @@ def _parse_task(page: dict) -> dict[str, str | None]:
     }
 
 
-def _format_existing_select_options(options: list[dict]) -> list[dict[str, str]]:
-    return [{"id": option["id"], "name": option["name"]} for option in options]
+def _format_existing_select_options(options: list[dict]) -> list[dict]:
+    formatted = []
+    for option in options:
+        item: dict = {"name": option["name"]}
+        if option.get("id"):
+            item["id"] = option["id"]
+        if option.get("color"):
+            item["color"] = option["color"]
+        formatted.append(item)
+    return formatted
+
+
+def _find_description_property_name(properties: dict) -> str | None:
+    for name in (DESCRIPTION_PROPERTY, "Description", "Описание"):
+        property_value = properties.get(name)
+        if property_value and property_value.get("type") == "rich_text":
+            return name
+    return None
+
+
+def _find_date_property_name(properties: dict) -> str | None:
+    for date_name in DUE_DATE_PROPERTIES:
+        date_property = properties.get(date_name)
+        if date_property and date_property.get("type") == "date":
+            return date_name
+
+    for name, property_value in properties.items():
+        if property_value.get("type") == "date":
+            return name
+
+    return None
 
 
 def _build_task_properties(
@@ -304,22 +334,63 @@ def _build_description_blocks(description: str) -> list[dict]:
     ]
 
 
+async def _update_status_options(
+    data_source_id: str,
+    access_token: str,
+    updated_options: list[dict],
+) -> dict:
+    client = AsyncClient(auth=access_token)
+    try:
+        data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
+        status_info = _find_status_property(data_source.get("properties", {}))
+        if not status_info:
+            raise ValueError("Status property not found")
+
+        status_name, status_schema = status_info
+        property_type = status_schema.get("type")
+
+        if property_type == "select":
+            patch = {status_name: {"select": {"options": updated_options}}}
+        elif property_type == "status":
+            patch = {status_name: {"status": {"options": updated_options}}}
+        else:
+            raise ValueError("Unsupported status property type")
+
+        return await client.data_sources.update(
+            data_source_id=data_source_id,
+            properties=patch,
+        )
+    except ValueError:
+        raise
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
 async def add_column_to_database(
-    database_id: str,
+    data_source_id: str,
     new_column: str,
     access_token: str,
 ) -> dict:
-    async with get_notion_client(access_token) as client:
-        get_response = await client.http.get(f"/databases/{database_id}")
-        get_response.raise_for_status()
-        database = get_response.json()
+    client = AsyncClient(auth=access_token)
+    try:
+        data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
+        status_info = _find_status_property(data_source.get("properties", {}))
+        if not status_info:
+            raise ValueError("Status property not found")
 
-        status_property = database["properties"].get(STATUS_PROPERTY)
-        if not status_property or status_property.get("type") != "select":
-            raise ValueError("Status select property not found")
+        _, status_schema = status_info
+        property_type = status_schema.get("type")
 
-        existing_options = status_property["select"]["options"]
-        if any(option["name"] == new_column for option in existing_options):
+        if property_type == "select":
+            existing_options = status_schema.get("select", {}).get("options", [])
+        elif property_type == "status":
+            existing_options = status_schema.get("status", {}).get("options", [])
+        else:
+            raise ValueError("Unsupported status property type")
+
+        if any(option.get("name") == new_column for option in existing_options):
             raise ValueError(f"Column '{new_column}' already exists")
 
         updated_options = _format_existing_select_options(existing_options)
@@ -330,21 +401,70 @@ async def add_column_to_database(
             }
         )
 
-        patch_response = await client.http.patch(
-            f"/databases/{database_id}",
-            json={
-                "properties": {
-                    STATUS_PROPERTY: {
-                        "select": {
-                            "options": updated_options,
-                        }
-                    }
-                }
-            },
+        return await _update_status_options(
+            data_source_id,
+            access_token,
+            updated_options,
+        )
+    except ValueError:
+        raise
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
+async def delete_column_from_database(
+    data_source_id: str,
+    column_title: str,
+    access_token: str,
+) -> dict:
+    columns = await get_database_columns(data_source_id, access_token)
+    if column_title not in columns:
+        raise ValueError(f"Column '{column_title}' not found")
+
+    if len(columns) <= 1:
+        raise ValueError("Нельзя удалить последнюю колонку")
+
+    fallback_status = next(column for column in columns if column != column_title)
+
+    tasks = await get_tasks(data_source_id, access_token)
+    for task in tasks:
+        if task.get("status") == column_title:
+            await update_task_status(task["id"], fallback_status, access_token)
+
+    client = AsyncClient(auth=access_token)
+    try:
+        data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
+        status_info = _find_status_property(data_source.get("properties", {}))
+        if not status_info:
+            raise ValueError("Status property not found")
+
+        _, status_schema = status_info
+        property_type = status_schema.get("type")
+
+        if property_type == "select":
+            existing_options = status_schema.get("select", {}).get("options", [])
+        elif property_type == "status":
+            existing_options = status_schema.get("status", {}).get("options", [])
+        else:
+            raise ValueError("Unsupported status property type")
+
+        updated_options = _format_existing_select_options(
+            [option for option in existing_options if option.get("name") != column_title]
         )
 
-    patch_response.raise_for_status()
-    return patch_response.json()
+        return await _update_status_options(
+            data_source_id,
+            access_token,
+            updated_options,
+        )
+    except ValueError:
+        raise
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
 
 
 async def get_tasks(database_id: str, access_token: str) -> list[dict]:
@@ -439,22 +559,119 @@ async def update_task_status(
     new_status: str,
     access_token: str,
 ) -> dict:
+    return await update_task(
+        task_id,
+        access_token,
+        status=new_status,
+    )
+
+
+async def _update_page_description_blocks(
+    client: AsyncClient,
+    page_id: str,
+    description: str,
+) -> None:
+    blocks_response = await client.blocks.children.list(block_id=page_id)
+    blocks = blocks_response.get("results", [])
+    paragraph_blocks = [block for block in blocks if block.get("type") == "paragraph"]
+    rich_text = (
+        [{"type": "text", "text": {"content": description}}] if description else []
+    )
+
+    if paragraph_blocks:
+        await client.blocks.update(
+            block_id=paragraph_blocks[0]["id"],
+            paragraph={"rich_text": rich_text},
+        )
+    elif description:
+        await client.blocks.children.append(
+            block_id=page_id,
+            children=[
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": rich_text},
+                }
+            ],
+        )
+
+
+async def update_task(
+    task_id: str,
+    access_token: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    due_date: str | None = None,
+    clear_due_date: bool = False,
+) -> dict:
     client = AsyncClient(auth=access_token)
     try:
         page = await client.pages.retrieve(page_id=task_id)
-        status_info = _find_status_property(page.get("properties", {}))
-        if not status_info:
-            raise ValueError("Status property not found")
+        page_properties = page.get("properties", {})
+        update_properties: dict = {}
 
-        status_name, status_schema = status_info
-        if status_schema.get("type") == "status":
-            properties = {status_name: {"status": {"name": new_status}}}
-        else:
-            properties = {status_name: {"select": {"name": new_status}}}
+        if title is not None:
+            title_property_name = _find_title_property_name(page_properties)
+            update_properties[title_property_name] = {
+                "title": [{"type": "text", "text": {"content": title}}],
+            }
 
-        return await client.pages.update(page_id=task_id, properties=properties)
+        if status is not None:
+            status_info = _find_status_property(page_properties)
+            if not status_info:
+                raise ValueError("Status property not found")
+
+            status_name, status_schema = status_info
+            if status_schema.get("type") == "status":
+                update_properties[status_name] = {"status": {"name": status}}
+            else:
+                update_properties[status_name] = {"select": {"name": status}}
+
+        if due_date is not None or clear_due_date:
+            date_property_name = _find_date_property_name(page_properties)
+            if date_property_name:
+                if clear_due_date or not due_date:
+                    update_properties[date_property_name] = {"date": None}
+                else:
+                    update_properties[date_property_name] = {
+                        "date": {"start": due_date},
+                    }
+
+        description_property_name = _find_description_property_name(page_properties)
+        if description is not None and description_property_name:
+            update_properties[description_property_name] = {
+                "rich_text": (
+                    [{"type": "text", "text": {"content": description}}]
+                    if description
+                    else []
+                ),
+            }
+
+        updated_page = page
+        if update_properties:
+            updated_page = await client.pages.update(
+                page_id=task_id,
+                properties=update_properties,
+            )
+
+        if description is not None and not description_property_name:
+            await _update_page_description_blocks(client, task_id, description)
+
+        return _parse_task(updated_page)
     except ValueError:
         raise
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
+async def delete_task(task_id: str, access_token: str) -> None:
+    client = AsyncClient(auth=access_token)
+    try:
+        await client.pages.update(page_id=task_id, archived=True)
     except Exception as e:
         raise Exception(f"Notion API error: {e}") from e
     finally:

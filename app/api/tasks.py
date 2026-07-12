@@ -6,9 +6,11 @@ from app.core.database import get_db
 from app.services.notion_service import (
     add_column_to_database,
     create_task,
+    delete_column_from_database,
+    delete_task,
+    get_database_columns,
     get_tasks,
-    update_task_status,
-    _parse_task,
+    update_task,
 )
 from app.services.user_service import get_user
 
@@ -24,10 +26,17 @@ class CreateTaskBody(BaseModel):
 
 
 class UpdateTaskBody(BaseModel):
-    status: str
+    title: str | None = None
+    description: str | None = None
+    status: str | None = None
+    due_date: str | None = None
 
 
 class CreateColumnBody(BaseModel):
+    title: str
+
+
+class DeleteColumnBody(BaseModel):
     title: str
 
 
@@ -92,15 +101,57 @@ async def update_user_task(
 ):
     user = await _require_user_with_database(db, telegram_id)
 
+    if not any(
+        value is not None
+        for value in (body.title, body.description, body.status, body.due_date)
+    ):
+        raise HTTPException(status_code=400, detail="Нет данных для обновления")
+
     try:
-        updated = await update_task_status(
+        clear_due_date = body.due_date == ""
+        updated = await update_task(
             task_id,
-            body.status,
             user.notion_access_token,
+            title=body.title,
+            description=body.description,
+            status=body.status,
+            due_date=body.due_date if body.due_date else None,
+            clear_due_date=clear_due_date,
         )
-        return _parse_task(updated)
+        return updated
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.delete("/{task_id}")
+async def delete_user_task(
+    task_id: str,
+    telegram_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await _require_user_with_database(db, telegram_id)
+
+    try:
+        await delete_task(task_id, user.notion_access_token)
+        return {"status": "ok"}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@columns_router.get("")
+async def list_columns(
+    telegram_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await _require_user_with_database(db, telegram_id)
+
+    try:
+        return await get_database_columns(
+            user.selected_database_id,
+            user.notion_access_token,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -115,6 +166,27 @@ async def create_column(
 
     try:
         await add_column_to_database(
+            user.selected_database_id,
+            body.title,
+            user.notion_access_token,
+        )
+        return {"status": "ok", "title": body.title}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@columns_router.delete("")
+async def remove_column(
+    body: DeleteColumnBody,
+    telegram_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await _require_user_with_database(db, telegram_id)
+
+    try:
+        await delete_column_from_database(
             user.selected_database_id,
             body.title,
             user.notion_access_token,
