@@ -116,6 +116,7 @@ async def create_database(title: str, columns: list[str], access_token: str) -> 
                             "options": _build_status_options(columns),
                         }
                     },
+                    ORDER_PROPERTY: {"number": {}},
                 },
             },
         )
@@ -129,6 +130,8 @@ STATUS_PROPERTY_NAMES = ("Status", "Статус")
 TITLE_PROPERTY = "Name"
 DESCRIPTION_PROPERTY = "Description"
 DUE_DATE_PROPERTIES = ("Due date", "Due Date")
+ORDER_PROPERTY = "Order"
+ORDER_PROPERTY_NAMES = (ORDER_PROPERTY, "Порядок", "Position")
 
 
 def _find_title_property_name(properties: dict) -> str:
@@ -240,7 +243,36 @@ def _parse_due_date(properties: dict) -> str | None:
     return None
 
 
-def _parse_task(page: dict) -> dict[str, str | None]:
+def _find_order_property_name(properties: dict) -> str | None:
+    for name in ORDER_PROPERTY_NAMES:
+        property_value = properties.get(name)
+        if property_value and property_value.get("type") == "number":
+            return name
+    return None
+
+
+def _parse_order(properties: dict) -> float | None:
+    for name in ORDER_PROPERTY_NAMES:
+        property_value = properties.get(name)
+        if property_value and property_value.get("type") == "number":
+            number_value = property_value.get("number")
+            return number_value if number_value is not None else None
+    return None
+
+
+def _sort_tasks(tasks: list[dict]) -> list[dict]:
+    def sort_key(task: dict) -> tuple:
+        order = task.get("order")
+        return (
+            task.get("status") or "",
+            order if order is not None else float("inf"),
+            task.get("title") or "",
+        )
+
+    return sorted(tasks, key=sort_key)
+
+
+def _parse_task(page: dict) -> dict[str, str | float | None]:
     properties = page.get("properties", {})
     return {
         "id": page.get("id"),
@@ -248,6 +280,7 @@ def _parse_task(page: dict) -> dict[str, str | None]:
         "description": _parse_description(properties),
         "status": _parse_status(properties) or "Без статуса",
         "due_date": _parse_due_date(properties),
+        "order": _parse_order(properties),
         "url": page.get("url"),
     }
 
@@ -290,6 +323,8 @@ def _build_task_properties(
     column: str,
     due_date: str | None,
     schema_properties: dict,
+    order: float | None = None,
+    order_property_name: str | None = None,
 ) -> dict:
     title_property_name = _find_title_property_name(schema_properties)
     properties: dict = {
@@ -318,6 +353,12 @@ def _build_task_properties(
                 if property_value.get("type") == "date":
                     properties[name] = {"date": {"start": due_date}}
                     break
+
+    resolved_order_property = order_property_name or _find_order_property_name(
+        schema_properties
+    )
+    if order is not None and resolved_order_property:
+        properties[resolved_order_property] = {"number": order}
 
     return properties
 
@@ -467,6 +508,73 @@ async def delete_column_from_database(
         await client.aclose()
 
 
+async def ensure_order_property(data_source_id: str, access_token: str) -> str:
+    client = AsyncClient(auth=access_token)
+    try:
+        data_source = await client.data_sources.retrieve(data_source_id=data_source_id)
+        properties = data_source.get("properties", {})
+        existing = _find_order_property_name(properties)
+        if existing:
+            return existing
+
+        await client.data_sources.update(
+            data_source_id=data_source_id,
+            properties={ORDER_PROPERTY: {"number": {}}},
+        )
+        return ORDER_PROPERTY
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
+def _get_next_order_for_status(tasks: list[dict], status: str) -> float:
+    status_tasks = [task for task in tasks if task.get("status") == status]
+    if not status_tasks:
+        return 0
+
+    orders = [
+        task["order"]
+        for task in status_tasks
+        if task.get("order") is not None
+    ]
+    if not orders:
+        return float(len(status_tasks))
+
+    return float(max(orders)) + 1
+
+
+async def reorder_tasks(
+    data_source_id: str,
+    status: str,
+    task_ids: list[str],
+    access_token: str,
+) -> None:
+    if not task_ids:
+        return
+
+    order_property_name = await ensure_order_property(data_source_id, access_token)
+    client = AsyncClient(auth=access_token)
+    try:
+        for index, task_id in enumerate(task_ids):
+            page = await client.pages.retrieve(page_id=task_id)
+            page_properties = page.get("properties", {})
+            task_status = _parse_status(page_properties) or "Без статуса"
+            if task_status != status:
+                raise ValueError(f"Task '{task_id}' is not in column '{status}'")
+
+            await client.pages.update(
+                page_id=task_id,
+                properties={order_property_name: {"number": index}},
+            )
+    except ValueError:
+        raise
+    except Exception as e:
+        raise Exception(f"Notion API error: {e}") from e
+    finally:
+        await client.aclose()
+
+
 async def get_tasks(database_id: str, access_token: str) -> list[dict]:
     """Получает все задачи из базы данных Notion"""
     tasks: list[dict] = []
@@ -483,8 +591,6 @@ async def get_tasks(database_id: str, access_token: str) -> list[dict]:
 
             response = await client.data_sources.query(**params)
 
-            print(response, "tasks response")
-
             for page in response.get("results", []):
                 tasks.append(_parse_task(page))
 
@@ -493,7 +599,7 @@ async def get_tasks(database_id: str, access_token: str) -> list[dict]:
 
             start_cursor = response.get("next_cursor")
 
-        return tasks
+        return _sort_tasks(tasks)
     except Exception as e:
         raise Exception(f"Notion API error: {e}") from e
     finally:
@@ -529,6 +635,14 @@ async def create_task(
     try:
         data_source = await client.data_sources.retrieve(data_source_id=database_id)
         schema_properties = data_source.get("properties", {})
+        order_property_name = _find_order_property_name(schema_properties)
+        if not order_property_name:
+            order_property_name = await ensure_order_property(database_id, access_token)
+            data_source = await client.data_sources.retrieve(data_source_id=database_id)
+            schema_properties = data_source.get("properties", {})
+
+        existing_tasks = await get_tasks(database_id, access_token)
+        next_order = _get_next_order_for_status(existing_tasks, status)
 
         payload: dict = {
             "parent": {
@@ -540,6 +654,8 @@ async def create_task(
                 status,
                 due_date,
                 schema_properties,
+                order=next_order,
+                order_property_name=order_property_name,
             ),
         }
 

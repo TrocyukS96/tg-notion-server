@@ -10,6 +10,7 @@ from app.services.notion_service import (
     delete_task,
     get_database_columns,
     get_tasks,
+    reorder_tasks,
     update_task,
 )
 from app.services.user_service import get_user
@@ -38,6 +39,11 @@ class CreateColumnBody(BaseModel):
 
 class DeleteColumnBody(BaseModel):
     title: str
+
+
+class ReorderTasksBody(BaseModel):
+    status: str
+    task_ids: list[str]
 
 
 async def _require_user_with_database(db: AsyncSession, telegram_id: int):
@@ -88,6 +94,31 @@ async def create_user_task(
             "status": body.status,
             "due_date": body.due_date,
         }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.patch("/reorder")
+async def reorder_user_tasks(
+    body: ReorderTasksBody,
+    telegram_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await _require_user_with_database(db, telegram_id)
+
+    if not body.task_ids:
+        raise HTTPException(status_code=400, detail="Список задач пуст")
+
+    try:
+        await reorder_tasks(
+            user.selected_database_id,
+            body.status,
+            body.task_ids,
+            user.notion_access_token,
+        )
+        return {"status": "ok", "status_column": body.status, "task_ids": body.task_ids}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
