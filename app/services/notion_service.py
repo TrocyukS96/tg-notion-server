@@ -334,6 +334,8 @@ async def get_tasks(database_id: str, access_token: str) -> list[dict]:
 
             response = await client.data_sources.query(**params)
 
+            print(response, "tasks response")
+
             for page in response.get("results", []):
                 tasks.append(_parse_task(page))
 
